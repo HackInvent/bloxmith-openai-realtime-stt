@@ -1,0 +1,68 @@
+.realtime-stt-card { display: flex; flex-direction: column; gap: 5px; text-align: center; }
+.realtime-stt-card span { font-size: 11px; overflow-wrap: anywhere; }
+/* Override only this block's generic two-column modal; the action bar never scrolls away. */
+.realtime-stt-ui.block-config-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(900px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
+}
+.realtime-stt-ui .modal-header,
+.realtime-stt-ui > .stt-actions { flex: 0 0 auto; }
+.realtime-stt-ui .modal-header h2 { overflow-wrap: anywhere; }
+.realtime-stt-ui .modal-header > button { flex-shrink: 0; }
+.realtime-stt-ui .stt-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  padding: 20px;
+  overflow: auto;
+  min-height: 0;
+}
+.realtime-stt-ui .stt-body > * { flex-shrink: 0; }
+.realtime-stt-ui .field-group { display: flex; flex-direction: column; gap: 0; min-width: 0; margin: 0; }
+.realtime-stt-ui .field-group label { display: block; margin-bottom: 6px; }
+.realtime-stt-ui input,
+.realtime-stt-ui select,
+.realtime-stt-ui textarea { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; }
+.realtime-stt-ui .field-group textarea { min-height: 80px; resize: vertical; font: inherit; }
+.realtime-stt-ui [data-stt-title] { margin-top: 6px; font: 400 14px var(--sans); }
+.realtime-stt-ui p,
+.realtime-stt-ui pre { overflow-wrap: anywhere; }
+.realtime-stt-ui .stt-section {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  min-width: 0;
+}
+.realtime-stt-ui .stt-section h3 { margin: 0; font-size: 14px; }
+.realtime-stt-ui .stt-section-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; justify-content: space-between; }
+.realtime-stt-ui .stt-model { color: var(--muted-strong); font-size: 12px; overflow-wrap: anywhere; }
+.realtime-stt-ui .stt-fields-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+.realtime-stt-ui .stt-help { display: block; margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted-strong); overflow-wrap: anywhere; }
+.realtime-stt-ui .stt-notice { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--muted-strong); font-size: 12px; line-height: 1.5; }
+.realtime-stt-ui .stt-disclosure { border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.realtime-stt-ui .stt-disclosure > summary { padding: 13px 16px; cursor: pointer; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.realtime-stt-ui .stt-disclosure > summary span { margin-left: 8px; color: var(--muted-strong); font-weight: 400; font-size: 12px; }
+.realtime-stt-ui .stt-disclosure > summary:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: -3px; border-radius: 12px; }
+.realtime-stt-ui .stt-disclosure-body { display: grid; gap: 14px; padding: 0 16px 16px; min-width: 0; }
+.realtime-stt-ui .stt-disclosure-body pre { white-space: pre-wrap; }
+.realtime-stt-ui .stt-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+.realtime-stt-ui .stt-actions [data-stt-feedback] { flex: 1 1 180px; margin: 0; color: var(--muted-strong); font-size: 12px; line-height: 1.5; }
+.realtime-stt-ui .stt-actions button { flex: 0 0 auto; margin-left: auto; min-width: 112px; }
+.realtime-stt-ui .stt-actions [data-stt-feedback][data-error="true"] { color: var(--danger-ink); }
+.realtime-stt-ui button:disabled { opacity: .6; }
+.realtime-stt-ui.cw-block-inspector .stt-actions { padding: 8px 0; border-top: 0; }
+.realtime-stt-ui.cw-block-inspector .inspector-tabs { margin-inline: 0; padding-inline: 0; flex-wrap: wrap; }
+/* Keep generic diagnostics available inside the main scroller instead of reserving a footer. */
+.realtime-stt-ui .stt-diagnostics .block-modal-error-tabs { border-top: 0; padding: 0; background: transparent; }
+.realtime-stt-ui .stt-diagnostics .block-modal-error-panel { padding: 10px 0 0; }
+@media (max-width: 560px) {
+  .realtime-stt-ui .stt-body { padding: 12px; gap: 12px; }
+  .realtime-stt-ui .stt-section { padding: 12px; }
+  .realtime-stt-ui > .stt-actions { padding: 12px; }
+}

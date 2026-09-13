@@ -1,0 +1,2 @@
+# Install with the Python interpreter that launches BloxSmith. FFmpeg is also required.
+websockets==15.0.1
