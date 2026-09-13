@@ -64,7 +64,7 @@ def test_command_validation_batches_and_modes():
         else:
             raise AssertionError("Invalid/oversized/concatenated command batch accepted.")
     block = FIX.OpenAIRealtimeSttBlock()
-    assert block.model["version"] == "1.0.0"
+    assert block.model["version"] == "0.1.0"
     assert block.model["tested_with_bloxsmith"] == (FIX.ROOT / "VERSION").read_text().strip()
     assert block.model["bloxsmith_compatibility"] == [block.model["tested_with_bloxsmith"]]
     mailbox = Mock()

@@ -1,7 +1,7 @@
 {
   "kind": "openai_realtime_stt",
   "title": "OpenAI Realtime STT",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "bloxsmith_compatibility": ["1.0.9"],
   "tested_with_bloxsmith": "1.0.9",
   "ports": {

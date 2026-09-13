@@ -1,7 +1,7 @@
 # OpenAI Realtime STT
 
 <!-- block-metadata:start -->
-[![Block version: 1.0.0](https://img.shields.io/badge/block-1.0.0-blue)](model.json)
+[![Block version: 0.1.0](https://img.shields.io/badge/block-0.1.0-blue)](model.json)
 [![BloxSmith compatibility: 1.0.9](https://img.shields.io/badge/BloxSmith-1.0.9-brightgreen)](compatibility.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
@@ -13,7 +13,7 @@ Transcribe **Microphone Stream** or **OpenAI TTS Stream** live, without an inter
 
 ## Declared version
 
-Block version **1.0.0** is the first version explicitly declared in the manifest. The declared and tested framework version is **BloxSmith 1.0.9**, matching the tested framework's `VERSION`, in `centralized` and `zeromq_active`. No other framework version is inferred to be compatible.
+Block version **0.1.0** follows the shared initial-version policy. The declared and tested framework version is **BloxSmith 1.0.9**, matching the tested framework's `VERSION`, in `centralized` and `zeromq_active`. No other framework version is inferred to be compatible.
 
 ## Connections
 
