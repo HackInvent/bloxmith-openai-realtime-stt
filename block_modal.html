@@ -1,11 +1,11 @@
 <div class="modal-panel block-config-modal realtime-stt-ui" role="dialog" aria-modal="true" aria-labelledby="{{ node_id }}SttTitle" data-generic-block-modal-root data-openai-realtime-stt-modal-root data-node-id="{{ node_id }}" data-node-kind="{{ node_kind }}">
-  <div class="modal-header"><div><span class="panel-kicker">Transcription en direct</span><h2 id="{{ node_id }}SttTitle">{{ node_title }}</h2></div><button class="ghost-btn" data-close-block-modal type="button">Fermer</button></div>
+  <div class="modal-header"><div><span class="panel-kicker">Live transcription</span><h2 id="{{ node_id }}SttTitle">{{ node_title }}</h2></div><button class="ghost-btn" data-close-block-modal type="button">Close</button></div>
   <div class="block-config-modal-body stt-body">
-    <div class="field-group stt-identity"><label>Nom du bloc<input data-stt-title type="text" autocomplete="off" value="{{ node_title }}" /></label></div>
+    <div class="field-group stt-identity"><label>Block name<input data-stt-title type="text" autocomplete="off" value="{{ node_title }}" /></label></div>
     {{ settings_html }}
-    <details class="stt-disclosure"><summary>Branchement des ports</summary><div class="stt-disclosure-body"><p class="stt-help">Reliez Microphone Stream ou OpenAI TTS Stream avec deux liens distincts : audio_out → audio_in et command_out → command_in. Format commun : Opus dans WebM ou Ogg. partial_out diffuse le texte provisoire en direct. final_out diffuse chaque segment confirmé par OpenAI, sans attendre l’arrêt de la source.</p>{{ ports_html }}</div></details>
-    <details class="stt-disclosure"><summary>État à l'ouverture</summary><div class="stt-disclosure-body">{{ runtime_html }}<p class="stt-help">Cet instantané ne se rafraîchit pas en direct. Suivez le texte dans les Display connectés.</p></div></details>
+    <details class="stt-disclosure"><summary>Port wiring</summary><div class="stt-disclosure-body"><p class="stt-help">Wire Microphone Stream or OpenAI TTS Stream with two distinct links: audio_out → audio_in and command_out → command_in. Common format: Opus in WebM or Ogg. partial_out streams the provisional text live. final_out publishes every segment confirmed by OpenAI, without waiting for the source to stop.</p>{{ ports_html }}</div></details>
+    <details class="stt-disclosure"><summary>State at opening</summary><div class="stt-disclosure-body">{{ runtime_html }}<p class="stt-help">This snapshot does not refresh live. Follow the text in the connected Display blocks.</p></div></details>
     {{ diagnostics_html }}
   </div>
-  <div class="stt-actions"><p data-stt-feedback role="status" aria-live="polite">Aucune modification.</p><button class="solid-btn" data-stt-apply data-block-mutation-control type="button" disabled>Appliquer</button></div>
+  <div class="stt-actions"><p data-stt-feedback role="status" aria-live="polite">No change.</p><button class="solid-btn" data-stt-apply data-block-mutation-control type="button" disabled>Apply</button></div>
 </div>

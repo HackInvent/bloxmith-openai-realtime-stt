@@ -400,7 +400,7 @@ def test_pcm_idle_preroll_offsets_and_safety():
         commands.append((130_000, "begin", now[0]))
         now[0] = 6
         await gate.tick()
-        assert not commands and "expirée" in warnings[-1]
+        assert not commands and "expired" in warnings[-1]
         await feed(60_000)
         assert commits[-1]["reason"] == "safety" and gate.active
         commands.append((182_400, "commit", now[0]))
@@ -463,8 +463,8 @@ def test_rejected_begin_never_poison_next_utterances():
         await gate.tick()
         assert gate.active and not commands, "An old orphan commit must not block a healthy begin."
         assert len(output) == 2000 * 48 and len(warnings) == 1
-        assert "début=0ms" in warnings[0] and "décodé=10000ms" in warnings[0]
-        assert "prébuffer_depuis=2000ms" in warnings[0]
+        assert "start=0ms" in warnings[0] and "decoded=10000ms" in warnings[0]
+        assert "prebuffer_since=2000ms" in warnings[0]
         commands.append((10000, "commit", 1))
         await gate.tick()
         assert len(commits) == 1 and not gate.active
@@ -477,7 +477,7 @@ def test_rejected_begin_never_poison_next_utterances():
         commands.append((10800, "begin", 1))
         await gate.tick()
         assert gate.active and not commands and len(output) == 2500 * 48
-        assert "sans début accepté" in warnings[-1]
+        assert "without an accepted start" in warnings[-1]
         assert len(gate.history) <= HISTORY_BYTES
     asyncio.run(scenario())
 
@@ -547,7 +547,7 @@ def test_external_properties_browser(page, server, blocking_errors):
     modal.wait_for()
     choice = modal.locator('[data-stt-setting="segmentation"]')
     assert choice.input_value() == "duration"
-    assert "mémoire audio 8 s" in modal.inner_text() and "1,5 s avant le début détecté" in modal.inner_text()
+    assert "8 s audio memory" in modal.inner_text() and "1.5 s before the detected start" in modal.inner_text()
     choice.focus()
     page.keyboard.press("ArrowDown")
     page.keyboard.press("Tab")

@@ -241,7 +241,7 @@ def test_contract_secrets_and_simulation():
     expect(block.initialize_runtime(active).status == "failed", "Missing resolver must fail before networking.")
     active.services["resolve_secret"] = Mock(side_effect=RuntimeError(KEY))
     result = block.initialize_runtime(active)
-    expect("coffre" in result.error and KEY not in str(result), "Wallet failures must not echo secrets.")
+    expect("unlock the wallet" in result.error and KEY not in str(result), "Wallet failures must not echo secrets.")
     active.services["resolve_secret"] = lambda ref: KEY
     expect(block.initialize_runtime(active).status == "success", "Configured active startup should validate.")
     for value in ("", "\r\ninvalid"):
@@ -442,8 +442,8 @@ def test_audio_bounds_and_connection_contract():
             expect(args == (REALTIME_URL,) and REALTIME_URL.startswith("wss://api.openai.com/"), "Only the official TLS endpoint is allowed.")
             expect(KEY not in REALTIME_URL and kwargs["additional_headers"] == {"Authorization": f"Bearer {KEY}"}, "Authenticate only through the header.")
             expect(kwargs["max_size"] == 1_048_576 and kwargs["max_queue"] == 16, "Bound incoming WebSocket buffers.")
-        for error, expected in ((ConnectionError(KEY), "réseau"),
-                                (InvalidStatus(Response(401, "Unauthorized", Headers(), KEY.encode())), "clé API"),
+        for error, expected in ((ConnectionError(KEY), "network"),
+                                (InvalidStatus(Response(401, "Unauthorized", Headers(), KEY.encode())), "API key"),
                                 (InvalidStatus(Response(429, "Limit", Headers(), KEY.encode())), "Quota")):
             with patch("websockets.asyncio.client.connect", AsyncMock(side_effect=error)):
                 try:
@@ -621,8 +621,8 @@ def test_ui_and_simulation_graph():
     node["config"]["prompt"] = '<script>alert("x")</script>'
     expect("<script>" not in block.render_modal(node=node)["html"], "Escape configuration HTML.")
     result = block.handle_ui_action(node=node, action="save_properties", values={
-        "title": "Transcription réunion", "config": {"api_key_ref": REF, "segment_seconds": "20"}})
-    expect(result["node_patch"]["title"] == "Transcription réunion", "Save title and settings in one patch.")
+        "title": "Meeting transcription", "config": {"api_key_ref": REF, "segment_seconds": "20"}})
+    expect(result["node_patch"]["title"] == "Meeting transcription", "Save title and settings in one patch.")
     expect(result["node_patch"]["config"]["segment_seconds"] == 20, "Keep server-side config validation.")
     for values in ({"title": "Must not save", "config": {"segment_seconds": 0}},
                    {"title": "Must not save", "config": {"api_key": KEY}},
@@ -631,7 +631,7 @@ def test_ui_and_simulation_graph():
         rejected = block.handle_ui_action(node=node, action="save_properties", values=values)
         expect("error" in rejected and "node_patch" not in rejected, "Reject the entire invalid title/settings edit.")
     with isolated_server() as server:
-        # Les surfaces sont des assets de release : le bundled kind n'en sert aucun.
+        # Surfaces are release assets: a bundled kind serves none of them.
         model = install_test_package(server, "openai_realtime_stt")
         key = quote(release_key(model), safe="")
         served = lambda payload, suffix: next(
@@ -683,7 +683,7 @@ const root = {
   querySelector: (selector) => ({ "[data-stt-apply]": button, "[data-stt-feedback]": feedback, "[data-stt-title]": title })[selector],
 };
 (async () => {
-  // Module de release : il s'importe par URL au lieu d'être évalué dans un global.
+  // Release module: it is imported by URL instead of being evaluated in a global scope.
   const surface = await import(url.pathToFileURL(process.argv[1]).href);
   let resolve;
   let calls = [];
@@ -711,10 +711,10 @@ const root = {
   assert.equal(calls[0].values.config.segment_seconds, "20");
   assert.equal(calls[0].values.title, "STT");
   let next = button.fire("click");
-  resolve({ error: "Réglage refusé" });
+  resolve({ error: "Setting refused" });
   await next;
   assert(!button.disabled);
-  assert.equal(feedback.textContent, "Réglage refusé");
+  assert.equal(feedback.textContent, "Setting refused");
   assert.equal(feedback.dataset.error, "true");
   next = button.fire("click");
   resolve({ node_patch: {} });
@@ -752,8 +752,8 @@ const root = {
   assert.equal(feedback.textContent, oldFeedback, "No feedback on an unmounted surface");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 '''
-    # Node ne charge un module ES portant l'extension .js qu'avec une portée de paquet ;
-    # une copie .mjs jetable évite d'en inventer une dans les sources du bloc.
+    # Node only loads an ES module with the .js extension inside a package scope;
+    # a throwaway .mjs copy avoids inventing one in the block sources.
     source = ROOT / "blocs/openai_realtime_stt/assets/js/common.js"
     with tempfile.TemporaryDirectory() as directory:
         module = Path(directory) / "common.mjs"

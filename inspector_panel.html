@@ -2,17 +2,17 @@
   <div class="inspector-selection {{ summary_hidden }}">
     <div class="inspector-node-card"><div class="inspector-node-copy"><strong>{{ node_title }}</strong><span>OpenAI Realtime STT</span></div></div>
     <div class="inspector-tabs">
-      <button class="inspector-tab {{ general_active }}" data-inspector-tab="general" type="button">Général</button>
+      <button class="inspector-tab {{ general_active }}" data-inspector-tab="general" type="button">General</button>
       <button class="inspector-tab {{ ports_active }}" data-inspector-tab="ports" type="button">Ports</button>
     </div>
   </div>
   <div class="inspector-view {{ general_hidden }}" data-inspector-panel-tab="general">
-    <div class="stt-actions block-apply-toolbar" data-block-apply-toolbar="true"><p data-stt-feedback role="status" aria-live="polite">Aucune modification.</p><button class="solid-btn" data-block-inspector-apply data-stt-apply type="button" disabled>Appliquer</button></div>
-    <div class="field-group {{ title_hidden }}"><label>Nom du bloc<input data-stt-title value="{{ node_title }}" /></label></div>
+    <div class="stt-actions block-apply-toolbar" data-block-apply-toolbar="true"><p data-stt-feedback role="status" aria-live="polite">No change.</p><button class="solid-btn" data-block-inspector-apply data-stt-apply type="button" disabled>Apply</button></div>
+    <div class="field-group {{ title_hidden }}"><label>Block name<input data-stt-title value="{{ node_title }}" /></label></div>
     {{ settings_html }}
   </div>
   <div class="inspector-view {{ ports_hidden }}" data-inspector-panel-tab="ports">
-    <div class="ports-editor-section"><span class="group-label">Entrées</span>{{ inputs_html }}</div>
-    <div class="ports-editor-section"><span class="group-label">Sorties</span>{{ outputs_html }}</div>
+    <div class="ports-editor-section"><span class="group-label">Inputs</span>{{ inputs_html }}</div>
+    <div class="ports-editor-section"><span class="group-label">Outputs</span>{{ outputs_html }}</div>
   </div>
 </div>

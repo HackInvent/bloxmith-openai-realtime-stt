@@ -74,7 +74,7 @@ class ExternalPcmTurns:
         while self.sent_until < end:
             offset = self.sent_until - self.history_start
             if offset < 0:
-                raise ExternalTurnError("Audio requis hors du prébuffer STT : le début de parole est arrivé trop tard.")
+                raise ExternalTurnError("Required audio outside the STT prebuffer: the speech start arrived too late.")
             count = min(end - self.sent_until, 9600, SAFETY_TURN_BYTES - self.segment_bytes)
             await self.append(bytes(self.history[offset:offset + count]))
             self.sent_until += count
@@ -107,21 +107,21 @@ class ExternalPcmTurns:
                     self.boundaries.pop(0)
                     self.closed_until = max(self.closed_until, offset)
                     if not self.rejected_begin:
-                        self.warn(f"Fin de parole sans début accepté ignorée à {offset_ms} ms ; la parole suivante reste admissible.")
+                        self.warn(f"Speech end without an accepted start ignored at {offset_ms} ms; the next speech turn stays admissible.")
                     self.rejected_begin = False
                     continue
                 break
             self.boundaries.pop(0)
             if action == "begin":
                 if self.active:
-                    self.warn("Début de parole ignoré : une parole est déjà ouverte ; commit attendu.")
+                    self.warn("Speech start ignored: a speech turn is already open; commit expected.")
                 elif offset < max(self.history_start, self.decoded_bytes - HISTORY_BYTES) or offset < self.closed_until:
                     self.rejected_begin = True
-                    self.warn("Début de parole trop ancien : hors prébuffer STT de 8 s ou tour déjà clos ; aucun audio tronqué n’est envoyé. "
-                              f"début={offset_ms}ms décodé={self.decoded_bytes // PCM_BYTES_PER_MS}ms "
-                              f"prébuffer_depuis={max(self.history_start, self.decoded_bytes - HISTORY_BYTES) // PCM_BYTES_PER_MS}ms "
-                              f"déjà_envoyé_jusqu’à={self.sent_until // PCM_BYTES_PER_MS}ms "
-                              f"attente_commande={max(0, int((self.clock() - arrived) * 1000))}ms")
+                    self.warn("Speech start too old: outside the 8 s STT prebuffer, or the turn is already closed; no truncated audio is sent. "
+                              f"start={offset_ms}ms decoded={self.decoded_bytes // PCM_BYTES_PER_MS}ms "
+                              f"prebuffer_since={max(self.history_start, self.decoded_bytes - HISTORY_BYTES) // PCM_BYTES_PER_MS}ms "
+                              f"already_sent_until={self.sent_until // PCM_BYTES_PER_MS}ms "
+                              f"command_wait={max(0, int((self.clock() - arrived) * 1000))}ms")
                 else:
                     # Prefix only confirmed turns. Never replay samples already appended, even when a
                     # late previous commit sent past this new begin; retain the new turn's unsent tail.
@@ -146,14 +146,14 @@ class ExternalPcmTurns:
         for boundary in list(self.boundaries):
             if now - boundary[2] > self.timeout_sec:
                 self.boundaries.remove(boundary)
-                self.warn("Commande de parole expirée : offset audio non reçu ou begin manquant ; capture conservée.")
+                self.warn("Speech command expired: audio offset not received or begin missing; capture kept.")
         if self.active:
             await self._send_until(self.decoded_bytes)
 
     async def finish(self) -> None:
         """Commit only an open speech tail on source stop, never idle silence or nonexistent samples."""
         if self.tail:
-            raise ExternalTurnError("Audio PCM tronqué : échantillon final incomplet.")
+            raise ExternalTurnError("Truncated PCM audio: incomplete final sample.")
         await self.tick()
         if self.active:
             await self._commit_segment("stop", None)
@@ -161,5 +161,5 @@ class ExternalPcmTurns:
         self.opened_at = None
         self.segment_bytes = 0
         if self.boundaries:
-            self.warn("Fin de capture avant les offsets de parole attendus ; commandes restantes ignorées.")
+            self.warn("Capture ended before the expected speech offsets; remaining commands ignored.")
             self.boundaries.clear()

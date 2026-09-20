@@ -24,14 +24,14 @@ export function mountSettings(root, api) {
   const refresh = () => {
     if (disposed || !button) return;
     button.disabled = busy || !changed() || Boolean(api.isReadOnly?.());
-    button.textContent = busy ? "Application…" : "Appliquer";
+    button.textContent = busy ? "Applying…" : "Apply";
   };
   /** Announce local form status without overwriting runtime diagnostics. */
   const announce = (message, error = false) => {
     if (!disposed && feedback) { feedback.textContent = message; feedback.dataset.error = String(error); }
   };
   const dirty = () => {
-    announce(busy ? "Application en cours…" : changed() ? "Modifications non appliquées." : "Aucune modification.");
+    announce(busy ? "Application en cours…" : changed() ? "Unapplied changes." : "No change.");
     refresh();
   };
   /** Validate hidden advanced fields, then save one snapshot without losing newer edits. */
@@ -42,7 +42,7 @@ export function mountSettings(root, api) {
       const disclosure = invalid.closest("details");
       if (disclosure) disclosure.open = true;
       invalid.reportValidity();
-      announce("Vérifiez le champ signalé avant d’appliquer.", true);
+      announce("Check the highlighted field before applying.", true);
       return;
     }
     const nodePatch = snapshot();
@@ -53,9 +53,9 @@ export function mountSettings(root, api) {
       const result = await api.applyAction("save_properties", nodePatch);
       if (result?.error) throw new Error(result.error);
       saved = JSON.stringify(nodePatch);
-      announce(changed() ? "Enregistré ; des modifications restent à appliquer." : "Modifications appliquées. Stop puis Run pour les nouveaux réglages.");
+      announce(changed() ? "Saved; some changes still need to be applied." : "Changes applied. Stop, then Run, for the new settings.");
     } catch (error) {
-      announce(error.message || "Échec de l'enregistrement.", true);
+      announce(error.message || "Saving failed.", true);
     } finally {
       busy = false;
       refresh();
