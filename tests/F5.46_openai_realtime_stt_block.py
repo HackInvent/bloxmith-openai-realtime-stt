@@ -50,6 +50,8 @@ from ui_smoke_common import (
     create_project_api, create_run_api, expect, graph_payload, http_json,
     isolated_server, wait_for_run_terminal,
 )
+from urllib.parse import quote
+from block_test_packages import install_test_package, release_key, surface_payload
 
 KEY = "test-only-secret-STT-73"
 REF = "secret://workspace/openai-test"
@@ -629,13 +631,18 @@ def test_ui_and_simulation_graph():
         rejected = block.handle_ui_action(node=node, action="save_properties", values=values)
         expect("error" in rejected and "node_patch" not in rejected, "Reject the entire invalid title/settings edit.")
     with isolated_server() as server:
+        # Les surfaces sont des assets de release : le bundled kind n'en sert aucun.
+        model = install_test_package(server, "openai_realtime_stt")
+        key = quote(release_key(model), safe="")
+        served = lambda payload, suffix: next(
+            asset["path"] for asset in payload["assets"] if asset["path"].endswith(suffix))
         applied = http_json(server.base_url, f"/api/blocks/{block.kind}/ui-action", method="POST",
             payload={"node": node, "action": "save_settings", "values": {"api_key_ref": REF, "segment_seconds": "20"}})
         expect(applied["node_patch"]["config"]["segment_seconds"] == 20, "The real settings API must persist normalized values.")
-        for surface in ("modal", "inspector-panel", "node-card"):
-            rendered = http_json(server.base_url, f"/api/blocks/{block.kind}/{surface}", method="POST", payload={"node": node})
+        for surface in ("modal", "inspector_panel", "node_card"):
+            rendered = surface_payload(server, model, {**node, "block_version": model["version"]}, surface)
             expect(bool(rendered.get("html")), f"Serve owned {surface}.")
-            if surface != "node-card":
+            if surface != "node_card":
                 expect(any(asset["path"].endswith(".js") for asset in rendered.get("assets", [])), "Declare surface-owned JS.")
         for asset in block.ui_assets("modal") + block.ui_assets("inspector_panel"):
             from urllib.request import urlopen
@@ -655,9 +662,8 @@ def test_ui_and_simulation_graph():
 def test_settings_javascript():
     """FB6: cover atomic edits, dirty reversion, validation, read-only, races and cleanup."""
     script = r'''
-const fs = require("fs");
-const vm = require("vm");
 const assert = require("assert");
+const url = require("url");
 class Control {
   constructor(value, key) { this.value = value; this.dataset = { sttSetting: key }; this.handlers = new Map(); this.disabled = true; }
   addEventListener(name, fn) { this.handlers.set(name, fn); }
@@ -676,14 +682,14 @@ const root = {
   querySelectorAll: () => [ref, duration],
   querySelector: (selector) => ({ "[data-stt-apply]": button, "[data-stt-feedback]": feedback, "[data-stt-title]": title })[selector],
 };
-const sandbox = { window: {} };
-vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"), sandbox);
 (async () => {
+  // Module de release : il s'importe par URL au lieu d'être évalué dans un global.
+  const surface = await import(url.pathToFileURL(process.argv[1]).href);
   let resolve;
   let calls = [];
   let readOnly = false;
   const api = { isReadOnly: () => readOnly, applyAction: (action, values) => { calls.push({ action, values }); return new Promise((done) => { resolve = done; }); } };
-  const dispose = sandbox.window.CWRealtimeSttUi.mount(root, api);
+  const dispose = surface.mountSettings(root, api);
   assert(button.disabled);
   title.value = "Meeting";
   title.fire("input");
@@ -733,7 +739,7 @@ vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"), sandbox);
   assert.equal(button.handlers.size, 0);
   assert.equal(ref.handlers.size, 0);
   assert.equal(title.handlers.size, 0);
-  const unmount = sandbox.window.CWRealtimeSttUi.mount(root, api);
+  const unmount = surface.mountSettings(root, api);
   title.value = "Updated inspector";
   title.fire("input");
   next = button.fire("click");
@@ -746,8 +752,13 @@ vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"), sandbox);
   assert.equal(feedback.textContent, oldFeedback, "No feedback on an unmounted surface");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 '''
-    subprocess.run(["node", "-e", script, str(ROOT / "blocs/openai_realtime_stt/assets/js/common.js")],
-                   check=True, timeout=10)
+    # Node ne charge un module ES portant l'extension .js qu'avec une portée de paquet ;
+    # une copie .mjs jetable évite d'en inventer une dans les sources du bloc.
+    source = ROOT / "blocs/openai_realtime_stt/assets/js/common.js"
+    with tempfile.TemporaryDirectory() as directory:
+        module = Path(directory) / "common.mjs"
+        module.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        subprocess.run(["node", "-e", script, str(module)], check=True, timeout=10)
 
 
 def test_properties_structure():

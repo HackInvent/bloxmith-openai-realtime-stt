@@ -754,16 +754,6 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
             if port.required != required or port.execution_requirement != requirement or port.multiplicity != "one":
                 raise RealtimeSttError("audio_in doit rester facultatif, command_in obligatoire, chacun à multiplicité un.")
 
-    def ui_assets(self, surface: str = "modal") -> list[dict[str, str]]:
-        """Declare CSS and the owning surface's settings code; no shared frontend changes."""
-        if surface not in {"modal", "inspector_panel", "node_card"}:
-            return []
-        assets = [{"kind": "css", "path": "assets/css/block_ui.css"}]
-        if surface != "node_card":
-            assets += [{"kind": "js", "path": "assets/js/common.js"},
-                       {"kind": "js", "path": f"assets/js/{'block_modal' if surface == 'modal' else surface}.js"}]
-        return assets
-
     def render_node_card(self, *, node: dict, payload: dict | None = None) -> dict:
         """Render a bounded status, leaving ports and execution decoration to the shell."""
         runtime = (payload or {}).get("runtime") or node.get("runtimeUi") or {}

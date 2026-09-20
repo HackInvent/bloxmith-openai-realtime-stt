@@ -2,30 +2,72 @@
   "kind": "openai_realtime_stt",
   "title": "OpenAI Realtime STT",
   "version": "0.1.0",
-  "bloxsmith_compatibility": ["1.0.9"],
+  "bloxsmith_compatibility": [
+    "1.0.9"
+  ],
   "tested_with_bloxsmith": "1.0.9",
   "ports": {
     "inputs": [
       {
-        "id": 1, "name": "audio_in", "title": "Audio in",
-        "accepts": ["audio/*"], "multiplicity": "one",
-        "required": false, "execution_requirement": "not_required_for_execution",
+        "id": 1,
+        "name": "audio_in",
+        "title": "Audio in",
+        "accepts": [
+          "audio/*"
+        ],
+        "multiplicity": "one",
+        "required": false,
+        "execution_requirement": "not_required_for_execution",
         "transport": "audio_stream",
         "audio_stream": {
-          "codecs": ["opus", "aac"], "sample_rates_hz": [], "channels": [1, 2],
+          "codecs": [
+            "opus",
+            "aac"
+          ],
+          "sample_rates_hz": [],
+          "channels": [
+            1,
+            2
+          ],
           "overflow_policy": "disconnect"
         }
       },
       {
-        "id": 2, "name": "command_in", "title": "Command in",
-        "accepts": ["application/json"], "multiplicity": "one",
-        "required": true, "execution_requirement": "required_for_execution",
+        "id": 2,
+        "name": "command_in",
+        "title": "Command in",
+        "accepts": [
+          "application/json"
+        ],
+        "multiplicity": "one",
+        "required": true,
+        "execution_requirement": "required_for_execution",
         "transport": "message"
       }
     ],
     "outputs": [
-      {"id": 1, "name": "partial_out", "title": "Texte provisoire", "emits": ["text/plain", "message/*"], "multiplicity": "many", "transport": "message"},
-      {"id": 2, "name": "final_out", "title": "Texte final", "emits": ["text/plain", "message/*"], "multiplicity": "many", "transport": "message"}
+      {
+        "id": 1,
+        "name": "partial_out",
+        "title": "Texte provisoire",
+        "emits": [
+          "text/plain",
+          "message/*"
+        ],
+        "multiplicity": "many",
+        "transport": "message"
+      },
+      {
+        "id": 2,
+        "name": "final_out",
+        "title": "Texte final",
+        "emits": [
+          "text/plain",
+          "message/*"
+        ],
+        "multiplicity": "many",
+        "transport": "message"
+      }
     ]
   },
   "config": {
@@ -42,15 +84,63 @@
     "max_duration_sec": 3600
   },
   "port_capabilities": {
-    "can_add_inputs": false, "can_add_outputs": false,
-    "allow_required_input": false, "default_required": false,
-    "max_inputs": 2, "max_outputs": 2,
-    "default_input_accepts": ["application/json"], "default_output_emits": ["text/plain"],
+    "can_add_inputs": false,
+    "can_add_outputs": false,
+    "allow_required_input": false,
+    "default_required": false,
+    "max_inputs": 2,
+    "max_outputs": 2,
+    "default_input_accepts": [
+      "application/json"
+    ],
+    "default_output_emits": [
+      "text/plain"
+    ],
     "default_multiplicity": "one"
   },
   "runtime": {
-    "initial_state": "waiting", "runtime_executable": true, "active_worker": true,
-    "generic_source": false, "centralized_executor": "generic",
-    "supports_runtime_audio_streams": true, "active_execution_policy": "all_inputs_ready"
+    "initial_state": "waiting",
+    "runtime_executable": true,
+    "active_worker": true,
+    "generic_source": false,
+    "centralized_executor": "generic",
+    "supports_runtime_audio_streams": true,
+    "active_execution_policy": "all_inputs_ready"
+  },
+  "ui_assets": {
+    "modal": [
+      {
+        "kind": "css",
+        "path": "assets/css/block_ui.css"
+      },
+      {
+        "kind": "js",
+        "path": "assets/js/common.js"
+      },
+      {
+        "kind": "js",
+        "path": "assets/js/block_modal.js"
+      }
+    ],
+    "inspector_panel": [
+      {
+        "kind": "css",
+        "path": "assets/css/block_ui.css"
+      },
+      {
+        "kind": "js",
+        "path": "assets/js/common.js"
+      },
+      {
+        "kind": "js",
+        "path": "assets/js/inspector_panel.js"
+      }
+    ],
+    "node_card": [
+      {
+        "kind": "css",
+        "path": "assets/css/block_ui.css"
+      }
+    ]
   }
 }
