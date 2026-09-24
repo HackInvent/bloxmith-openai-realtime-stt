@@ -56,6 +56,40 @@ Runtime **Stop/Cancel cancels active sessions**. It does not replace source `sto
 
 The TTS `F5.49_opus_interoperability.py` suite checks TTS → STT through the real runtime with simulated HTTP/WebSocket APIs: final segments before stop, mono/stereo decoding and automatic closure, without paid requests.
 
+### Continuous conversations and connection renewal
+
+The STT no longer ends a capture after one hour. Source `start`/`stop` controls the
+capture lifetime; enable **Continuous capture** in Microphone Stream for an
+untimed microphone session. No blueprint wiring change is needed.
+
+The existing `max_duration_sec` setting now controls **OpenAI connection lifetime**,
+not total capture duration. Its name is retained for existing configurations.
+With the default 3,600 seconds, the block preconnects around 55 minutes, then
+switches between speech turns or at the next committed segment. An open turn can
+be safety-split before the deadline (`reason: renewal`), without closing that VAD
+turn. This is block-owned renewal policy, not a guarantee of a provider's session
+limit or availability.
+
+The same source `stream_id`, frame/byte counters, persistent FFmpeg decoder,
+absolute decoded-audio clock, eight-second history and 1.5-second prefix survive
+every renewal. The MediaRecorder stream is not restarted and no audio is replayed.
+Idle external-mode silence remains unsent and produces no text.
+
+At most two remote connections coexist per capture: either current + preparing,
+or current + draining. Old final results are drained while the new connection
+receives audio. Confirmed final segments retain audio order across generations;
+late previews from an older generation are ignored after switching. Output
+metadata adds `connection_generation` to distinguish reused remote item IDs.
+Renewals report `renewing`/`renewed`, not `failed` or capture `completed`.
+
+Pending finals retain their finite timeout and bounded queues. Authentication,
+quota, unexpected disconnects, missing final results or saturation still report
+errors. There is no speculative transcript, unlimited retry or hidden audio replay.
+Source Stop cancels an unused replacement and drains the current capture; Run
+Stop cancels all connections immediately as before. OpenAI context is configured
+again from the same settings, but no provider-internal conversation state is
+copied between transcription connections.
+
 ## Text outputs
 
 Both outputs emit `text/plain` and also declare static `message/*` compatibility, like file-based OpenAI STT, so they connect to Display.
@@ -92,7 +126,7 @@ Audio already sent beyond a late commit boundary cannot be withdrawn. `segment_c
 
 ### External-boundary limits
 
-- Offsets must advance for each action. Equal/older offsets are ignored; offsets are bounded by `max_duration_sec`.
+- Offsets must advance for each action. Equal/older offsets are ignored. Offsets are nonnegative safe JSON integers (at most 9,007,199,254,740,991 ms), independent of connection lifetime; offsets beyond one hour remain valid.
 - At most 64 pending boundaries per capture, plus 64 pre-start messages retained for at most five seconds. Early boundaries alone never open a session.
 - A boundary lacking its audio or begin expires after `drain_timeout_sec` with a nonterminal warning; capture remains available.
 - Continuous speech is safety-split at **60 seconds**, then continues without another begin. Metadata reports `reason: safety`. Idle silence is not periodically committed instead of external commands.
@@ -115,13 +149,13 @@ Default `duration` mode and `segment_seconds` are unchanged. Begin/commit in dur
 | Post-stop frame wait | 5 s | 0.25–30 s |
 | Connection/configuration wait | 10 s | 1–30 s |
 | Final decoder/results wait | 20 s | 1–60 s per stage |
-| Maximum capture duration | 3,600 s | Integer 1–3,600 s, measured from start |
+| OpenAI connection lifetime (`max_duration_sec`) | 3,600 s | Integer 1–3,600 s per remote connection; automatic renewal, no total capture limit |
 
 Apply changes, then **Stop → Run** to load them. The card shows runtime state; the modal shows an opening snapshot. Connected Displays receive live outputs.
 
 ## Properties UI
 
-The modal and inspector group fields into **Connection** (full secret reference) and **Transcription** (languages, turn mode, periodic duration and context). External-mode help explains commands, prebuffering and the speech limit. **Advanced settings** are collapsed by default and contain model delay, timeouts and maximum duration. Help text documents formats and units; layout adapts to the viewport or inspector width.
+The modal and inspector group fields into **Connection** (full secret reference) and **Transcription** (languages, turn mode, periodic duration and context). External-mode help explains commands, prebuffering and the speech limit. **Advanced settings** are collapsed by default and contain model delay, timeouts and connection lifetime. Help text distinguishes connection renewal from capture duration; layout adapts to the viewport or inspector width.
 
 One Apply button saves the block name and settings together through block-owned `save_properties` on the generic UI bridge. All fields are validated before returning one patch; `save_settings` remains for legacy clients. Apply stays accessible while scrolling, at the modal bottom or inspector top.
 
@@ -137,6 +171,7 @@ Ports, opening state and diagnostics are collapsible. Runtime errors automatical
 - Stop counters and sequence continuity detect loss. Audio and commands remain best-effort, with no automatic replay that could duplicate transcripts or billing.
 - The first chunk must contain container headers. One persistent decoder per capture retains that context; chunks are not decoded independently.
 - Text is bounded to 32,000 characters per segment and 64 pending items. Published segments are released; a full-capture transcript is not accumulated.
+- Each of the at most two connections has bounded pending items. At most 64 confirmed new-generation segments can wait for old finals; the older connection's timeout bounds that wait. Other graph consumers and framework result retention have their own limits.
 - Limit violations, network failures, invalid formats and aborted captures are errors, not silent successes.
 - A later error cannot retract previews or final segments already consumed downstream.
 - Latency depends on the browser, FFmpeg, network and OpenAI. Validate MediaRecorder formats in target browsers; installation alone guarantees no fixed latency. No diarization or word-level timestamps.
@@ -154,12 +189,22 @@ Tests cover shared prefixes, fully sent turns, reordered commands, the eight-sec
 
 Other coverage includes real WebM/Ogg/AAC decoding; previews and confirmed segments before stop; actual execution of the final Display; no final output from a delta or acknowledgement alone; last-segment waiting without blocking previous results; duplicates and out-of-order completions; text bounds; no fabricated final text on errors/cancellation; loss, timeouts, cooperative stop, HTTP surfaces and mini-graphs in both modes.
 
+`F5.76_continuous_sessions.py` covers quiet and mid-speech renewals, exact PCM
+equality across sockets, reused item IDs, late old finals, continuous previews,
+Stop during reconnection, visible authentication failures and offsets beyond two
+hours. `F5.77_continuous_endurance.py` streams **2 h 15 min of generated Ogg/Opus**
+through the real decoder/runtime and a local provider simulator, advancing the
+connection clock with decoded audio. It checks repeated turns, counters, one
+decoder, bounded queues/history and process memory high-water growth. Its JSON
+report includes actual wall-clock duration and memory samples. This accelerated
+test is not a wall-clock soak test or a live OpenAI availability certification.
+
 UI tests check drafts, errors, edits during requests, atomic renaming/settings, restored values, advanced validation and read-only states. FFmpeg container probing is bounded so PCM starts before recording ends.
 
 From the private integration workspace:
 
 ```sh
-python3 -B tests/run_tests.py openai_realtime_stt
+python3 -B tests/run_tests.py openai_realtime_stt --timeout-sec 360
 ```
 
 Integration fixtures create temporary blueprints through the framework before preparing an instance; no real instance IDs are reused.
@@ -178,3 +223,12 @@ They cover 320–1,440 px modals, a narrow inspector, atomic Apply through the r
 [compatibility.json](compatibility.json) records HackInvent's verified BloxSmith versions and test evidence. Only the versions listed above have been verified, using the block-owned suites in a **bundled-block test installation**. This is not a certification of managed-package installation, every browser/OS, or live provider availability. Other framework versions are unverified, not necessarily incompatible.
 
 The block-version badge follows `model.json`, not a published Git tag. `unversioned` means that no block release version is declared; no number is inferred from the framework version. The framework still uses `model.json` for its runtime/install contract; the tester-owned JSON does not replace it. Official integration tests run in the private `bloxmith-blocs` workspace. Test helpers and the proprietary framework are not bundled in this public block repository.
+
+## Properties ergonomics
+
+Modal and inspector styles are owned by this package and scoped to its exact
+release. Forms adapt to narrow panels, checkboxes stay beside their labels, and
+long values do not widen the inspector. Existing labels are associated with
+controls; keyboard navigation complements the block’s own tab handlers.
+These presentation helpers do not change port bindings, authored settings,
+runtime behavior or the block’s original surface cleanup.

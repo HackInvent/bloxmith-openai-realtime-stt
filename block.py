@@ -34,6 +34,7 @@ REALTIME_URL = "wss://api.openai.com/v1/realtime?intent=transcription"
 MAX_BUFFER = 8 * 1024 * 1024
 MAX_TEXT = 32_000
 PCM_BYTES_PER_SECOND = 48_000  # Mono, signed little-endian PCM16 at 24 kHz.
+MAX_AUDIO_OFFSET_MS = 9_007_199_254_740_991  # Exact JSON integer, not a capture-duration limit.
 SECRET_REF = re.compile(r"secret://(?:workspace/[A-Za-z0-9_.-]{1,80}|project/[A-Za-z0-9_.-]{1,80}/[A-Za-z0-9_.-]{1,80})")
 DEFAULTS = {
     "api_key_ref": "", "model": MODEL, "languages": "fr", "prompt": "", "delay": "low",
@@ -107,8 +108,8 @@ def _command(raw: Any) -> dict:
     if result["action"] in {"begin", "commit"}:
         key = "audio_start_ms" if result["action"] == "begin" else "audio_end_ms"
         value = raw.get(key)
-        if set(raw) != {"action", "stream_id", key} or type(value) is not int or not 0 <= value <= 3_600_000:
-            raise RealtimeSttError(f"Invalid audio boundary: {key}, an integer from 0 to 3,600,000 ms, with no other field.")
+        if set(raw) != {"action", "stream_id", key} or type(value) is not int or not 0 <= value <= MAX_AUDIO_OFFSET_MS:
+            raise RealtimeSttError(f"Invalid audio boundary: {key}, a nonnegative safe JSON integer, with no other field.")
         result[key] = value
     if result["action"] == "stop":
         for key in ("frame_count", "byte_count"):
@@ -189,8 +190,6 @@ class _Capture:
             raise RealtimeSttError("begin/commit command ignored: choose external segmentation in the STT properties.")
         action = command["action"]
         offset = command["audio_start_ms" if action == "begin" else "audio_end_ms"]
-        if offset > config["max_duration_sec"] * 1000:
-            raise RealtimeSttError("Speech boundary beyond the maximum capture duration; command ignored.")
         if offset <= self.latest_boundary.get(action, -1):
             return
         if len(self.boundaries) >= 64:
@@ -291,9 +290,10 @@ class _Decoder:
 class _Transcripts:
     """Stream provisional text and publish completed segments in audio order, independently of stop."""
 
-    def __init__(self, context: BlockRuntimeListenerContext, capture: _Capture):
-        """Keep all transcript buffers local to one capture, never on the block definition."""
+    def __init__(self, context: BlockRuntimeListenerContext, capture: _Capture, *, publish=None):
+        """Keep bounded transcript buffers local to one remote connection of a capture."""
         self.context, self.capture = context, capture
+        self.publish = publish or context.emit_result
         self.items: dict[str, dict] = {}
         self.order: deque[str] = deque()
         self.retired: deque[str] = deque(maxlen=128)
@@ -308,7 +308,7 @@ class _Transcripts:
             return
         for item_id, item in self.items.items():
             if item["dirty"] and item["final"] is None:
-                self.context.emit_result(BlockRuntimeResult(
+                self.publish(BlockRuntimeResult(
                     outputs=[BlockRuntimeOutput(port_id=1, port_name="partial_out",
                                                 value=item["text"], content_type=TEXT_PLAIN)],
                     last_message="Transcription en cours…",
@@ -321,7 +321,7 @@ class _Transcripts:
 
     def emit_final(self, text: str, item_id: str) -> None:
         """Publish one confirmed segment on final_out, preserving the API text without a stop gate."""
-        self.context.emit_result(BlockRuntimeResult(
+        self.publish(BlockRuntimeResult(
             outputs=[BlockRuntimeOutput(port_id=2, port_name="final_out", value=text, content_type=TEXT_PLAIN)],
             last_message="Segment transcrit.",
             metadata={"openai_realtime_stt": {"state": "transcribing", "stream_id": self.capture.stream_id,
@@ -379,6 +379,10 @@ class _Transcripts:
         self.changed.set()
         self.flush_partial()
 
+    def drained(self) -> bool:
+        """Acknowledge and finalize every commit; a provisional item never counts as final."""
+        return self.commits == self.acknowledged == self.finalized and not self.items and not self.order
+
 
 async def _guard(work, reader: asyncio.Task):
     """Await a session operation while failing promptly if the WebSocket reader dies."""
@@ -395,12 +399,185 @@ async def _guard(work, reader: asyncio.Task):
         await asyncio.gather(task, return_exceptions=True)
 
 
+@dataclass
+class _Connection:
+    """One remote generation; never owns the source clock, encoded stream or decoder."""
+
+    ws: Any
+    generation: int
+    started: float
+    transcripts: _Transcripts | None = None
+    reader: asyncio.Task | None = None
+    sealed_at: float | None = None
+    finals: deque = field(default_factory=deque)
+
+
+class _Connections:
+    """Renew remote sessions with at most two sockets and ordered, bounded final output.
+
+    Preconnect before the configured lifetime. Switch on the next empty/committed
+    turn, or request a safety cut at the deadline. The previous connection drains
+    confirmed finals while the new one receives audio. There is no replay and no
+    promotion of provisional text, including on timeout or cancellation.
+    """
+
+    clock = staticmethod(time.monotonic)
+
+    def __init__(self, block, context, config, capture):
+        """Own a bounded pair of remote generations for one uninterrupted capture."""
+        self.block, self.context, self.config, self.capture = block, context, config, capture
+        self.current = None
+        self.live = deque()
+        self.next_task = None
+        self.generation = self.finalized = 0
+
+    def _publish(self, connection, result):
+        """Order finals across connections and suppress late previews from an older turn."""
+        metadata = result.metadata["openai_realtime_stt"]
+        metadata["connection_generation"] = connection.generation
+        if metadata.get("is_final"):
+            if self.live and self.live[0] is connection:
+                while connection.finals:
+                    self.context.emit_result(connection.finals.popleft())
+                self.context.emit_result(result)
+                return
+            if len(connection.finals) >= 64:
+                raise RealtimeSttError("Too many confirmed segments are waiting for an earlier transcription.")
+            connection.finals.append(result)
+        elif connection is self.current:
+            self.context.emit_result(result)
+
+    async def _open(self):
+        """Configure one cancellable connection; release it even if startup is interrupted."""
+        self.generation += 1
+        ws = await self.block._connect(_secret(self.context, self.config), self.config)
+        connection = _Connection(ws, self.generation, self.clock())
+        try:
+            connection.transcripts = _Transcripts(self.context, self.capture,
+                publish=lambda result: self._publish(connection, result))
+            connection.reader = asyncio.create_task(self.block._read_events(ws, connection.transcripts))
+            transcription = {"model": MODEL, "delay": self.config["delay"]}
+            if self.config["languages"]:
+                transcription["languages"] = self.config["languages"].split(",")
+            if self.config["prompt"]:
+                transcription["prompt"] = self.config["prompt"]
+            await self.block._send(ws, {"type": "session.update", "session": {"type": "transcription", "audio": {"input": {
+                "format": {"type": "audio/pcm", "rate": 24000}, "transcription": transcription, "turn_detection": None,
+            }}}})
+            await _guard(asyncio.wait_for(connection.transcripts.ready.wait(), self.config["connect_timeout_sec"]), connection.reader)
+            return connection
+        except BaseException:
+            await self._close(connection)
+            raise
+
+    async def start(self):
+        """Start the first remote session; source buffers remain owned by the listener."""
+        self.current = await self._open()
+        self.live.append(self.current)
+
+    @staticmethod
+    async def _close(connection):
+        """Stop the reader and abort the socket without a remote close-handshake wait."""
+        # Abort before the first await: cancellation during reader cleanup cannot leak a socket.
+        connection.ws.transport.abort()
+        if connection.reader is not None:
+            connection.reader.cancel()
+            await asyncio.gather(connection.reader, return_exceptions=True)
+        with suppress(Exception):
+            await asyncio.wait_for(connection.ws.wait_closed(), 0.2)
+
+    async def _discard_next(self):
+        """Cancel a pending replacement, including a ready socket not yet adopted."""
+        if self.next_task is not None:
+            task = self.next_task
+            task.cancel()
+            result, = await asyncio.gather(task, return_exceptions=True)
+            if isinstance(result, _Connection):
+                await self._close(result)
+            self.next_task = None
+
+    @property
+    def replacement_ready(self):
+        """The replacement must be configured, not merely connected, before switching."""
+        return self.next_task is not None and self.next_task.done()
+
+    @property
+    def cut_due(self):
+        """A long open utterance gets a bounded safety split, never dropped PCM."""
+        lifetime = self.config["max_duration_sec"]
+        return self.replacement_ready and self.clock() - self.current.started >= lifetime - min(5, lifetime / 20)
+
+    async def poll(self, *, renew=True):
+        """Drain old finals, surface real failures, and preconnect without blocking decoding."""
+        while self.live:
+            oldest = self.live[0]
+            while oldest.finals:
+                self.context.emit_result(oldest.finals.popleft())
+            if oldest.sealed_at is None or not oldest.transcripts.drained():
+                break
+            await self._close(oldest)
+            self.live.popleft()
+            self.finalized += oldest.transcripts.finalized
+        for connection in self.live:
+            if connection.reader.done():
+                await connection.reader
+                raise RealtimeSttError("OpenAI connection closed before the end of the transcription.")
+            if connection.sealed_at is not None and time.monotonic() - connection.sealed_at > self.config["final_timeout_sec"]:
+                raise RealtimeSttError("Timeout while waiting for the final results of an OpenAI session.")
+        if not renew or self.capture.stop is not None:
+            await self._discard_next()
+            return
+        if self.replacement_ready:
+            # Retrieve exceptions promptly; _open has already released failed startup resources.
+            replacement = self.next_task.result()
+            if replacement.reader.done():
+                await replacement.reader
+                raise RealtimeSttError("OpenAI replacement connection closed before activation.")
+        lifetime = self.config["max_duration_sec"]
+        margin = min(300, lifetime / 4)
+        if len(self.live) == 1 and self.next_task is None and self.clock() - self.current.started >= lifetime - margin:
+            self.context.emit_result(BlockRuntimeResult(last_message="Renewing the OpenAI connection; capture continues.",
+                logs=["[stt-session] Renewing the OpenAI connection; source and decoder retained."],
+                metadata={"openai_realtime_stt": {"state": "renewing", "stream_id": self.capture.stream_id,
+                    "connection_generation": self.current.generation}}))
+            self.next_task = asyncio.create_task(self._open())
+
+    async def switch(self):
+        """Adopt a ready replacement only when the caller has committed its current audio."""
+        if not self.replacement_ready:
+            return
+        replacement = self.next_task.result()
+        self.next_task = None
+        self.current.sealed_at = time.monotonic()
+        self.current = replacement
+        self.live.append(replacement)
+        self.context.emit_result(BlockRuntimeResult(last_message="OpenAI connection renewed; capture continues.",
+            metadata={"openai_realtime_stt": {"state": "renewed", "stream_id": self.capture.stream_id,
+                "connection_generation": replacement.generation}}))
+
+    async def finish(self):
+        """Drain every generation in source order after stop, with independent finite deadlines."""
+        await self._discard_next()
+        self.current.sealed_at = time.monotonic()
+        while self.live:
+            await self.poll(renew=False)
+            if self.live:
+                await asyncio.sleep(0.002)
+
+    async def close(self):
+        """Release all pending/active/retiring connections on every termination path."""
+        await self._discard_next()
+        await asyncio.gather(*(self._close(connection) for connection in self.live), return_exceptions=True)
+        self.live.clear()
+
+
 # FB1 - Fixed explicit audio/command inputs, listener from Run and no-op simulation.
 # FB2 - Bounded source start/stop and external speech begin/commit correlation, late-frame drain and reuse.
 # FB3 - Continuous container decoding to PCM, cancellable server-side OpenAI WebSocket.
 # FB4 - Live segment previews on partial_out; confirmed segment text on final_out without waiting for stop.
 # FB5 - Wallet-only authentication, bounded settings and non-sensitive failures.
 # FB6 - Autonomous configuration surfaces, discovery, documentation and two-mode integration.
+# FB7 - Renew long-running remote connections without resetting source audio, VAD offsets or ordered finals.
 class OpenAIRealtimeSttBlock(BlockDefinition):
     """An autonomous live transcription consumer; no behavior is delegated to the framework."""
 
@@ -479,8 +656,6 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
                         task.result()
                         del sessions[stream_id]
                         retired.append(stream_id)
-                    elif now - capture.started > config["max_duration_sec"]:
-                        raise RealtimeSttError("Maximum capture duration reached; stop, then restart the audio source.")
                     elif capture.stop and not capture.complete() and now - capture.stopped_at > config["drain_timeout_sec"]:
                         raise RealtimeSttError("Incomplete stream after stop: the last audio frames were not received.")
                 if not command_batch:
@@ -576,49 +751,23 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
             raise RealtimeSttError("OpenAI connection failed: check the network and the connection timeout.") from None
 
     async def _session(self, context: BlockRuntimeListenerContext, config: dict, capture: _Capture) -> None:
-        """Own one WebSocket until all announced bytes and final transcripts are drained."""
-        transcripts = _Transcripts(context, capture)
-        ws = None
-        reader = None
+        """Keep one source/decoder while renewing its remote transcription connections."""
+        connections = _Connections(self, context, config, capture)
         try:
             context.emit_result(BlockRuntimeResult(last_message="Connecting to OpenAI…",
                 metadata={"openai_realtime_stt": {"state": "connecting", "stream_id": capture.stream_id}}))
-            ws = await self._connect(_secret(context, config), config)
-            reader = asyncio.create_task(self._read_events(ws, transcripts))
-            transcription = {"model": MODEL, "delay": config["delay"]}
-            if config["languages"]:
-                transcription["languages"] = config["languages"].split(",")
-            if config["prompt"]:
-                transcription["prompt"] = config["prompt"]
-            await self._send(ws, {"type": "session.update", "session": {"type": "transcription", "audio": {"input": {
-                "format": {"type": "audio/pcm", "rate": 24000}, "transcription": transcription, "turn_detection": None,
-            }}}})
-            await _guard(asyncio.wait_for(transcripts.ready.wait(), config["connect_timeout_sec"]), reader)
-            await _guard(self._stream_audio(ws, capture, transcripts, config), reader)
-
-            async def await_finals():
-                """Wait for every explicit commit, not just the most recent completion event."""
-                while (transcripts.acknowledged != transcripts.commits or transcripts.finalized != transcripts.commits
-                       or transcripts.items or transcripts.order):
-                    transcripts.changed.clear()
-                    await transcripts.changed.wait()
-
-            await _guard(asyncio.wait_for(await_finals(), config["final_timeout_sec"]), reader)
+            await connections.start()
+            await self._stream_audio(connections, capture, config)
+            await connections.finish()
             # Stop drains the tail and closes the session; each confirmed segment has already been published.
             context.emit_result(BlockRuntimeResult(last_message="Transcription finished." if capture.frame_count else "Empty capture: no text.",
                 metadata={"openai_realtime_stt": {"state": "completed", "stream_id": capture.stream_id,
-                    "segments": transcripts.finalized, "frames_received": capture.frame_count, "bytes_received": capture.byte_count}}))
+                    "segments": connections.finalized, "frames_received": capture.frame_count, "bytes_received": capture.byte_count,
+                    "connections": connections.generation}}))
         except TimeoutError:
             raise RealtimeSttError("Timeout while waiting for the OpenAI configuration, the decoding or the final results.") from None
         finally:
-            if reader is not None:
-                reader.cancel()
-                await asyncio.gather(reader, return_exceptions=True)
-            if ws is not None:
-                # Abort avoids waiting on a remote close handshake during framework Stop.
-                ws.transport.abort()
-                with suppress(Exception):
-                    await asyncio.wait_for(ws.wait_closed(), 0.2)
+            await connections.close()
 
     @staticmethod
     async def _send(ws: Any, event: dict) -> None:
@@ -639,7 +788,7 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
                 raise RealtimeSttError("Invalid OpenAI event.")
             transcripts.event(event)
 
-    async def _stream_audio(self, ws: Any, capture: _Capture, transcripts: _Transcripts, config: dict) -> None:
+    async def _stream_audio(self, connections: _Connections, capture: _Capture, config: dict) -> None:
         """Pump one persistent decoder, using duration cuts or explicit offset-based speech turns."""
         decoder = None
         pending = bytearray()
@@ -654,6 +803,8 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
             nonlocal segment_bytes
             if not segment_bytes:
                 return
+            remote = connections.current
+            ws, transcripts = remote.ws, remote.transcripts
             if transcripts.commits - transcripts.finalized >= 64:
                 raise RealtimeSttError("Too many segments are waiting for a final transcription.")
             if segment_bytes < 4800:
@@ -663,16 +814,17 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
             await self._send(ws, {"type": "input_audio_buffer.commit"})
             segment_bytes = 0
             if config["segmentation"] == "external":
-                transcripts.context.emit_result(BlockRuntimeResult(last_message="Speech sent for final transcription.",
+                connections.context.emit_result(BlockRuntimeResult(last_message="Speech sent for final transcription.",
                     metadata={"openai_realtime_stt": {"state": "segment_committed", "stream_id": capture.stream_id,
                         "reason": reason, "audio_start_ms": audio_start_ms,
                         "committed_audio_start_ms": committed_audio_start_ms,
                         "audio_end_ms": audio_end_ms, "committed_audio_end_ms": committed_audio_end_ms}}))
+            await connections.switch()
 
         async def append_pcm(raw: bytes):
             """Append real PCM while tracking only this remote turn's actual audio samples."""
             nonlocal segment_bytes
-            await self._send(ws, {"type": "input_audio_buffer.append", "audio": base64.b64encode(raw).decode("ascii")})
+            await self._send(connections.current.ws, {"type": "input_audio_buffer.append", "audio": base64.b64encode(raw).decode("ascii")})
             segment_bytes += len(raw)
 
         async def send_pcm():
@@ -687,10 +839,18 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
                     await commit()
 
         external = ExternalPcmTurns(capture.boundaries, append_pcm, commit,
-            lambda message: _boundary_warning(transcripts.context, capture.stream_id, message),
+            lambda message: _boundary_warning(connections.context, capture.stream_id, message),
             timeout_sec=config["drain_timeout_sec"]) if config["segmentation"] == "external" else None
         try:
             while True:
+                await connections.poll()
+                if connections.cut_due and segment_bytes:
+                    if external is not None:
+                        await external.checkpoint()
+                    else:
+                        await commit(reason="renewal")
+                if not segment_bytes:
+                    await connections.switch()
                 if external is not None:
                     await external.tick()
                 if not pending and capture.frames:
@@ -777,7 +937,7 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
             "segmentation": "End of speech turns",
             "drain_timeout_sec": "Wait for the last frames after stop (s)",
             "final_timeout_sec": "Wait for the final results (s)",
-            "connect_timeout_sec": "Connection timeout (s)", "max_duration_sec": "Maximum capture duration (s)",
+            "connect_timeout_sec": "Connection timeout (s)", "max_duration_sec": "OpenAI connection lifetime (s)",
         }
         hints = {
             "api_key_ref": "Copy the complete reference from Settings → Secrets, not the API key. Unlock the wallet before Run.",
@@ -788,7 +948,7 @@ class OpenAIRealtimeSttBlock(BlockDefinition):
             "drain_timeout_sec": "Time granted to the last frames after the microphone stops.",
             "final_timeout_sec": "Time granted to the final decoding and to the OpenAI results, per step.",
             "connect_timeout_sec": "Time granted to the connection and to the session configuration.",
-            "max_duration_sec": "Safety limit per capture: 3,600 s = 1 hour.",
+            "max_duration_sec": "Automatically renews before this limit (by default around 55 minutes), preferably between turns. Does not stop the source or limit the total capture duration.",
         }
         prefix = escape(f"{node.get('id', 'stt')}-{surface}-stt", quote=True)
         fields = {}

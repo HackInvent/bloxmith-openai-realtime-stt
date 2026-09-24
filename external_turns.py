@@ -82,6 +82,11 @@ class ExternalPcmTurns:
             if self.segment_bytes == SAFETY_TURN_BYTES:
                 await self._commit_segment("safety", None)
 
+    async def checkpoint(self) -> None:
+        """Split an open remote turn for renewal, keeping VAD state/history and source offsets."""
+        if self.active:
+            await self._commit_segment("renewal", None)
+
     async def tick(self) -> None:
         """Apply ready begin/commit commands even without new PCM; expire impossible waits visibly."""
         while self.boundaries:

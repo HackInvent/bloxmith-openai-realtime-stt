@@ -48,7 +48,8 @@ def test_command_validation_batches_and_modes():
             raise AssertionError("Invalid segmentation mode accepted.")
     for action in ("begin", "commit"):
         assert FIX._command(boundary(action, 0)) == boundary(action, 0)
-        for offset in (-1, True, 1.2, "100", 3_600_001):
+        assert FIX._command(boundary(action, 7_200_001)) == boundary(action, 7_200_001)
+        for offset in (-1, True, 1.2, "100", 9_007_199_254_740_992):
             try:
                 FIX._command(boundary(action, offset))
             except FIX.RealtimeSttError:
@@ -433,7 +434,9 @@ def test_real_listener_external_phrases_before_stop():
         assert not api.pcm and not api.completed_items
         client.frame(audio[:-100])
         FIX.until(lambda: len(api.completed_items) == 2, "Two externally ended phrases must finalize without source stop.")
-        FIX.until(lambda: client.observed(port="final_out"), "Confirmed phrase must leave final_out.")
+        FIX.until(lambda: client.observed(port="final_out") and
+                  sum(o.port_name == "final_out" for r in client.results for o in r.outputs) == 2,
+                  "Both confirmed phrases must leave final_out before source Stop.")
         assert api.opened == 1 and api.closed == 0
         assert len(api.pcm) == 2500 * 48, "The second confirmed turn recovers its prefix, without replaying the first."
         assert [o.value for r in client.results for o in r.outputs if o.port_name == "final_out"] == ["final 1", "final 2"]

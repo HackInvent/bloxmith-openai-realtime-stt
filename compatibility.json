@@ -5,7 +5,7 @@
   "maintained_by": "HackInvent",
   "source": {
     "algorithm": "block-source-v1",
-    "sha256": "4d77a0c0dc47c41a8319fb2da3481c4e1161e73f96d8cd4f7ae58eb875863e6b"
+    "sha256": "f034f76d99d5ea3165f22ded23b8b267c5f187e7793294d2bbe1f578bb728b3a"
   },
   "bloxsmith_compatibility": [
     "1.0.9"
@@ -14,17 +14,19 @@
   "validations": [
     {
       "bloxsmith_version": "1.0.9",
-      "framework_commit": "57e7ba724774c646df175ab870afd601d8aa4cd5",
-      "framework_source_sha256": "48b1b447ea65fcc6e6b828b2a6b624febe02d878814142b18917e4a5fc40963e",
-      "tested_at": "2026-09-20T21:23:39.409439+00:00",
+      "framework_commit": "b0807fcbb07f673cb6bfb6c104e1310ac3a3ab1b",
+      "framework_source_sha256": "11ca16f8418e77f7fd7a403f1f1350531c8e13600a92fbda97ae466d136eaf7c",
+      "tested_at": "2026-09-24T17:55:19.248120+00:00",
       "status": "passed",
       "installation_mode": "bundled",
       "suite_paths": [
         "tests/F5.46_openai_realtime_stt_block.py",
-        "tests/F5.52_external_turns.py"
+        "tests/F5.52_external_turns.py",
+        "tests/F5.76_continuous_sessions.py",
+        "tests/F5.77_continuous_endurance.py"
       ],
-      "suite_count": 2,
-      "report_sha256": "76efedb3892bc5834cc3d0e086eacd867eaff3026d58edd1f21193b9fd49be05"
+      "suite_count": 4,
+      "report_sha256": "b9b10bee66920b0542ed0954988eafd9332636a2aa3aa640e8d0b68e1448440f"
     }
   ]
 }
